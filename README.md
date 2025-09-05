@@ -24,7 +24,7 @@ The MarineSIR system is engineered with a modular architecture to streamline the
 
 1.  Clone the repository:
     ```bash
-    git clone <your-repository-url>
+    git clone https://github.com/siyuChen540/MarineSIR.git
     cd marinesir
     ```
 
