@@ -1,193 +1,173 @@
+import os
 import numpy as np
 from PyQt5.QtWidgets import (
-    QMainWindow, QDockWidget, QTextEdit, QToolBar, QAction, 
-    QStatusBar, QStyle
+    QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
+    QTabWidget, QTextEdit, QStatusBar, QFrame
 )
-from PyQt5.QtCore import Qt, QThread, QSize
+from PyQt5.QtCore import QThread
+from PyQt5.QtGui import QFont
 
-from ui.widgets import MplCanvas, ControlPanel, ValidationPanel
-from ui.dialogs import SettingsDialog
-from core.inference import InferenceWorker
+# import new workflow widgets and Matplotlib canvas
+from ui.widgets import DataSetupWidget, TrainingWidget, ResultsWidget, MplCanvas
+from core.training_worker import TrainingWorker
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MarineSIR")
-        self.setGeometry(100, 100, 1400, 900)
+        self.setWindowTitle("MarineSIR - Intelligent Marine Image Reconstruction Platform")
+        self.setGeometry(100, 100, 1600, 900)
         self.thread = None
         self.worker = None
-        self.settings = {
-            "input_path": "Not selected", "output_path": "Not selected",
-            "temporal_window": "10", "model_weights": "Default (FTC-LSTM_v1.pt)",
-            "use_log_scale": True, "use_gpu": True
-        }
-
-        self.map_canvas = MplCanvas(self, width=8, height=6, dpi=100)
-        self.map_canvas.axes.set_xlabel("Longitude")
-        self.map_canvas.axes.set_ylabel("Latitude")
-        self.setCentralWidget(self.map_canvas)
-        self.map_canvas.mpl_connect('button_press_event', self.on_map_click)
 
         self.setup_ui()
         self.apply_stylesheet()
-        
+
     def setup_ui(self):
-        self.create_docks()
-        self.create_actions()
-        self.create_toolbar()
-        self.create_menu_bar()
-        self.create_status_bar()
-        self.connect_signals()
+        main_widget = QWidget()
+        main_layout = QHBoxLayout(main_widget)
+        self.setCentralWidget(main_widget)
 
-    def create_docks(self):
-        control_dock = QDockWidget("Control Panel", self)
-        self.control_panel = ControlPanel()
-        control_dock.setWidget(self.control_panel)
-        self.addDockWidget(Qt.RightDockWidgetArea, control_dock)
+        # --- Left Control Panel (Workflow Panel) ---
+        left_panel = QFrame(self)
+        left_panel.setObjectName("SidePanel")
+        left_panel.setFixedWidth(350)
+        left_panel_layout = QVBoxLayout(left_panel)
+        left_panel_layout.setSpacing(20)
 
-        ts_dock = QDockWidget("Time Series Plot", self)
-        self.ts_canvas = MplCanvas(self)
-        self.ts_canvas.axes.set_title("Time Series at Point")
-        self.ts_canvas.axes.grid(True)
-        ts_dock.setWidget(self.ts_canvas)
-        self.addDockWidget(Qt.RightDockWidgetArea, ts_dock)
+        # Step 1: Data Preparation
+        self.data_widget = DataSetupWidget()
+        # Step 2: Model Training
+        self.training_widget = TrainingWidget()
+        # Step 3: Results and Analysis
+        self.results_widget = ResultsWidget()
 
-        validation_dock = QDockWidget("Validation Metrics", self)
-        self.validation_panel = ValidationPanel()
-        validation_dock.setWidget(self.validation_panel)
-        self.addDockWidget(Qt.BottomDockWidgetArea, validation_dock)
-        
-        log_dock = QDockWidget("Logs", self)
+        left_panel_layout.addWidget(self.data_widget)
+        left_panel_layout.addWidget(self.training_widget)
+        left_panel_layout.addWidget(self.results_widget)
+        left_panel_layout.addStretch()
+
+        # --- Right Content Area (Content Area) ---
+        right_tabs = QTabWidget()
         self.log_text_edit = QTextEdit()
         self.log_text_edit.setReadOnly(True)
-        log_dock.setWidget(self.log_text_edit)
-        self.addDockWidget(Qt.BottomDockWidgetArea, log_dock)
-        
-        self.tabifyDockWidget(validation_dock, log_dock)
-        validation_dock.raise_()
 
-    def create_actions(self):
-        style = self.style()
-        self.open_action = QAction(style.standardIcon(QStyle.SP_DirOpenIcon), "&Open Data...", self)
-        self.save_action = QAction(style.standardIcon(QStyle.SP_DriveHDIcon), "&Save Map...", self)
-        self.settings_action = QAction(style.standardIcon(QStyle.SP_FileDialogDetailedView), "&Settings...", self)
-        self.exit_action = QAction("&Exit", self)
+        self.map_canvas = MplCanvas()
+        self.map_canvas.axes.set_title("Reconstruction Result")
+        self.map_canvas.axes.set_xlabel("Longitude")
+        self.map_canvas.axes.set_ylabel("Latitude")
 
-    def create_toolbar(self):
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setIconSize(QSize(24, 24))
-        self.addToolBar(toolbar)
-        toolbar.addAction(self.open_action)
-        toolbar.addAction(self.save_action)
-        toolbar.addSeparator()
-        toolbar.addAction(self.settings_action)
+        self.training_plot_canvas = MplCanvas()
+        self.training_plot_canvas.axes.set_title("Real-time Training Curve")
+        self.training_plot_canvas.axes.set_xlabel("Epoch")
+        self.training_plot_canvas.axes.set_ylabel("Loss")
+        self.training_plot_canvas.axes.grid(True, linestyle='--', alpha=0.6)
 
-    def create_menu_bar(self):
-        menu_bar = self.menuBar()
-        file_menu = menu_bar.addMenu("&File")
-        file_menu.addAction(self.open_action)
-        file_menu.addAction(self.save_action)
-        file_menu.addSeparator()
-        file_menu.addAction(self.settings_action)
-        file_menu.addSeparator()
-        file_menu.addAction(self.exit_action)
-        view_menu = menu_bar.addMenu("&View")
-        for dock in self.findChildren(QDockWidget):
-            view_menu.addAction(dock.toggleViewAction())
+        right_tabs.addTab(self.map_canvas, "Reconstruction")
+        right_tabs.addTab(self.training_plot_canvas, "Training Curve")
+        right_tabs.addTab(self.log_text_edit, "Log")
 
-    def create_status_bar(self):
+        main_layout.addWidget(left_panel)
+        main_layout.addWidget(right_tabs, 1) # Give more stretch space
+
+        # --- Status Bar ---
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready")
-        
-    def connect_signals(self):
-        self.control_panel.run_clicked.connect(self.start_reconstruction)
-        self.control_panel.stop_clicked.connect(self.stop_reconstruction)
-        self.settings_action.triggered.connect(self.open_settings_dialog)
-        self.exit_action.triggered.connect(self.close)
+        self.status_bar.showMessage("Ready. Please start from Step 1.")
 
-    def open_settings_dialog(self):
-        dialog = SettingsDialog(self, self.settings)
-        if dialog.exec_():
-            self.settings = dialog.get_settings()
-            self.update_log(f"Settings updated: {self.settings}")
+        # --- Connect signals and slots ---
+        self.training_widget.start_training_signal.connect(self.start_training)
+        self.training_widget.stop_training_signal.connect(self.stop_training)
 
-    def start_reconstruction(self):
-        self.control_panel.run_button.setEnabled(False)
-        self.control_panel.stop_button.setEnabled(True)
-        self.status_bar.showMessage("Processing...")
+    def start_training(self):
+        settings = {
+            'data_path': self.data_widget.get_data_path(),
+            'mask_path': self.data_widget.get_mask_path(),
+            'use_log_scale': self.data_widget.use_log_scale(),
+            'training_quality': self.training_widget.get_training_quality()
+        }
         
+        if not os.path.isdir(settings['data_path']):
+            self.log_message("Error: Invalid input data path.")
+            self.status_bar.showMessage("Error: Invalid input data path.")
+            return
+
+        self.training_widget.set_controls_enabled(False)
+        self.status_bar.showMessage("Initializing training...")
+
+        # Clear previous training plot
+        self.training_plot_canvas.axes.clear()
+        self.training_plot_canvas.axes.set_title("Real-time Training Curve")
+        self.training_plot_canvas.axes.set_xlabel("Epoch")
+        self.training_plot_canvas.axes.set_ylabel("Loss")
+        self.training_plot_canvas.axes.grid(True, linestyle='--', alpha=0.6)
+        self.train_loss_line, = self.training_plot_canvas.axes.plot([], [], 'o-', label='Train Loss')
+        self.val_loss_line, = self.training_plot_canvas.axes.plot([], [], 'o-', label='Validation Loss')
+        self.training_plot_canvas.axes.legend()
+
+        # Start background training thread
         self.thread = QThread()
-        self.worker = InferenceWorker(self.settings)
+        self.worker = TrainingWorker(settings)
         self.worker.moveToThread(self.thread)
 
         self.thread.started.connect(self.worker.run)
-        self.worker.finished.connect(self.on_reconstruction_finished)
-        self.worker.progress.connect(self.update_progress)
-        self.worker.log_message.connect(self.update_log)
+        self.worker.log_message.connect(self.log_message)
+        self.worker.progress_updated.connect(self.update_progress)
+        self.worker.epoch_finished.connect(self.update_training_plot)
+        self.worker.training_finished.connect(self.on_training_finished)
         
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.training_finished.connect(self.thread.quit)
+        self.worker.training_finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
         
         self.thread.start()
 
-    def stop_reconstruction(self):
-        if self.worker: self.worker.stop()
-        self.control_panel.stop_button.setEnabled(False)
-        self.control_panel.run_button.setEnabled(True)
-        self.status_bar.showMessage("Process stopped by user.")
+    def stop_training(self):
+        if self.worker:
+            self.worker.stop()
+            self.log_message("Sending stop signal...")
+            self.training_widget.set_controls_enabled(True)
+            self.status_bar.showMessage("Training stopped.")
 
-    def on_reconstruction_finished(self, map_data, metrics):
-        self.update_log("Process finished successfully.")
-        self.control_panel.run_button.setEnabled(True)
-        self.control_panel.stop_button.setEnabled(False)
-        self.status_bar.showMessage("Ready")
-        self.display_map(map_data)
-        self.update_validation_metrics(metrics)
+    def log_message(self, msg):
+        self.log_text_edit.append(msg)
 
     def update_progress(self, value, text):
-        self.control_panel.progress_bar.setValue(value)
+        self.training_widget.update_progress(value)
         self.status_bar.showMessage(text)
 
-    def update_log(self, message):
-        self.log_text_edit.append(message)
+    def update_training_plot(self, epoch, train_loss, val_loss):
+        # Update training curve plot
+        x_data = list(self.train_loss_line.get_xdata()) + [epoch]
+        y_train_data = list(self.train_loss_line.get_ydata()) + [train_loss]
+        y_val_data = list(self.val_loss_line.get_ydata()) + [val_loss]
 
-    def update_validation_metrics(self, metrics):
-        self.validation_panel.rmse_label.setText(metrics.get("RMSE", "N/A"))
-        self.validation_panel.ssim_label.setText(metrics.get("SSIM", "N/A"))
-        self.validation_panel.psnr_label.setText(metrics.get("PSNR", "N/A"))
-        self.validation_panel.r2_label.setText(metrics.get("R2", "N/A"))
+        self.train_loss_line.set_data(x_data, y_train_data)
+        self.val_loss_line.set_data(x_data, y_val_data)
 
-    def display_map(self, data):
-        self.map_canvas.axes.clear()
-        im = self.map_canvas.axes.imshow(data, cmap='viridis', interpolation='nearest')
-        self.map_canvas.figure.colorbar(im, ax=self.map_canvas.axes, shrink=0.6)
-        self.map_canvas.axes.set_title("Reconstructed Chlorophyll-a (mg/m³)")
-        self.map_canvas.axes.set_xlabel("Longitude")
-        self.map_canvas.axes.set_ylabel("Latitude")
-        self.map_canvas.draw()
-
-    def on_map_click(self, event):
-        if event.inaxes != self.map_canvas.axes: return
-        x, y = int(event.xdata), int(event.ydata)
-        self.update_log(f"Map clicked at pixel ({x}, {y}). Generating time series...")
+        self.training_plot_canvas.axes.relim()
+        self.training_plot_canvas.axes.autoscale_view()
+        self.training_plot_canvas.draw()
         
-        time_steps = np.arange(0, 30)
-        ts_data = 5 + np.random.randn(30).cumsum()
-        
-        self.ts_canvas.axes.clear()
-        self.ts_canvas.axes.plot(time_steps, ts_data, marker='o', linestyle='-')
-        self.ts_canvas.axes.set_title(f"Time Series at ({x}, {y})")
-        self.ts_canvas.axes.set_xlabel("Time Step")
-        self.ts_canvas.axes.set_ylabel("Chl-a Value")
-        self.ts_canvas.axes.grid(True)
-        self.ts_canvas.figure.tight_layout()
-        self.ts_canvas.draw()
+    def on_training_finished(self, model_path):
+        self.training_widget.set_controls_enabled(True)
+        if model_path:
+            self.status_bar.showMessage(f"Training completed! Model saved.")
+            # Automatically load the model and perform inference/display example results here
+            self.results_widget.update_metrics({"Status": "Training successful", "Model Path": model_path})
+            # Example: Display a randomly generated "result map"
+            dummy_map = np.random.rand(48, 48)
+            self.map_canvas.axes.clear()
+            im = self.map_canvas.axes.imshow(dummy_map, cmap='viridis')
+            self.map_canvas.figure.colorbar(im, ax=self.map_canvas.axes)
+            self.map_canvas.draw()
+        else:
+            self.status_bar.showMessage("Training failed, please check the log.")
+            self.results_widget.update_metrics({"Status": "Training failed"})
+
 
     def apply_stylesheet(self):
         try:
             with open("assets/style.qss", "r") as f:
                 self.setStyleSheet(f.read())
         except FileNotFoundError:
-            print("Stylesheet file not found. Using default styles.")
+            print("Warning: style.qss not found, using default style.")
