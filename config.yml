@@ -1,1 +1,30 @@
-# config
+# ===================================================================
+# MarineSIR FTC-LSTM Training Configuration
+# ===================================================================
+
+# --- Project & Run Settings ---
+mark: "ftclstm_run_01"
+wandb_project: "MarineSIR-Chlorophyll"
+wandb_entity: "your_username"
+wandb_run_name: "ftclstm_48x48_10frames"
+ckpts_dir: "./checkpoints"         # Directory to save model checkpoints
+
+# --- Dataset Parameters ---
+root_dir: "path/to/your/data"      # Directory containing .npy data files
+mask_dir: "path/to/your/masks"     # Optional: directory for mask files
+is_month: false                    # Set to true if using monthly masks
+
+# --- Model & Training Hyperparameters ---
+EPOCH: 200
+BATCH: 8
+LR: 0.0001
+frames: 10                         # Number of frames in each sequence
+shape_scale: [48, 48]              # Target shape for data frames
+device: "cuda"                     # "cuda" or "cpu"
+ckpt_files: ""                     # Path to a .pth.tar checkpoint to resume training
+random_seed: 42
+
+# --- FTC-LSTM Specific Parameters ---
+fconv: true                        # Use Fourier Transform Convolution
+min_cache: false                   # Not fully described, assumed model variant switch
+beta: 0.5                          # Weight for composite loss (beta * MSE + (1-beta) * SSIM_loss)
