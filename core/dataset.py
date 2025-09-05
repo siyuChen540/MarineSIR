@@ -6,6 +6,13 @@ from torchvision import transforms
 from torchvision.transforms import ToTensor, Lambda, Compose
 from typing import List, Tuple
 
+# --- sequential log transform class ---
+class Log10Transform:
+    """Applies a safe log10 transformation to a tensor."""
+    def __call__(self, tensor):
+        # The transformation logic is the same as the lambda
+        return torch.log10(torch.clamp(tensor, min=1e-8))
+
 class inpainting_DS(Dataset):
     """PyTorch Dataset for loading sequential frames of satellite data."""
     def __init__(self, root: str, frames: int, shape_scale=(48, 48), is_month:bool=False, 
@@ -44,7 +51,7 @@ class inpainting_DS(Dataset):
 
         transform_list = [ToTensor()]
         if apply_log:
-            transform_list.append(Lambda(lambda x: torch.log10(torch.clamp(x, min=1e-8))))
+            transform_list.append(Log10Transform())
         if apply_normalize and (global_mean is not None and global_std is not None):
             transform_list.append(transforms.Normalize(mean=[global_mean], std=[global_std]))
         self.transform = Compose(transform_list)
