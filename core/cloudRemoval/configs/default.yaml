@@ -1,0 +1,83 @@
+experiment:
+  name: fconvlstm-min-cache
+  output_dir: record/refactor_runs
+  seed: 540
+  deterministic: false
+
+data:
+  root_dir: D:/ceeres/03_Program/01_SYSUM/00_science/04_image_recovery/01_program/00_dataset/chlora_month/rename_input
+  mask_dir: D:/ceeres/03_Program/01_SYSUM/00_science/04_image_recovery/01_program/00_dataset/chl_mask
+  frames: 4
+  image_size: [480, 480]
+  stride: 1
+  suffix: .npy
+  sort_files: true
+  use_mmap: true
+  mask_sampling: random
+  split:
+    mode: chronological
+    train_ratio: 0.7
+    val_ratio: 0.2
+  loader:
+    num_workers: 0
+    pin_memory: true
+    persistent_workers: false
+    shuffle_train: true
+    drop_last: false
+  synthetic_mask:
+    keep_prob: 0.8
+  transform:
+    log10: true
+    nan_value: 1.0
+    zero_value: 1.0
+    normalize: none
+    eps: 1.0e-6
+
+model:
+  input_channels: 1
+  output_channels: 1
+  frames: 4
+  stage_channels: [4, 16, 24]
+  hidden_channels: [16, 24, 24]
+  kernel_size: 5
+  fourier_mode: fft_add
+  upsample_mode: deconv
+  alternate_reverse: true
+  output_activation: relu
+
+loss:
+  pixel_loss: mse
+  pixel_weight: 0.16
+  ssim_weight: 0.84
+  mask_mode: all
+  temporal_weight: 0.0
+  ssim_window: 11
+  ssim_val_range: null
+  normalize_ssim_loss: true
+
+metrics:
+  mask_mode: all
+
+optimizer:
+  lr: 2.0e-3
+  weight_decay: 0.0
+
+scheduler:
+  name: plateau
+  factor: 0.5
+  patience: 14
+  min_lr: 0.0
+
+training:
+  device: auto
+  epochs: 1000
+  batch_size: 1
+  amp: true
+  compile: false
+  validate_every: 10
+  save_sample_every: 10
+  early_stopping_patience: 20
+  early_stopping_min_delta: 0.0
+  clip_grad_value: 10.0
+  clip_grad_norm: null
+  resume: null
