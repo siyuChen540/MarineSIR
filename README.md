@@ -1,65 +1,97 @@
-# MarineSIR: Marine Spatiotemporal Image Reconstruction
+# MarineSIR: Marine Satellite Image Reconstruction Workbench
 
-MarineSIR is a high-performance application designed for the reconstruction of missing data in marine satellite imagery, such as Chlorophyll-a concentrations. It leverages a sophisticated deep learning model, the Fourier Transform Convolutional Long Short-Term Memory (FTC-LSTM) network, to accurately fill gaps caused by cloud cover or sensor malfunction.
+MarineSIR is a Python application for cloud-gap reconstruction in marine satellite image sequences. The current application wraps the refactored FTC/ConvLSTM cloud-removal backend in a minimal scientific GUI. The GUI is intentionally separated from the training and prediction process: the interface remains a lightweight PyQt5 renderer, while model training and evaluation run in an external Python process.
 
-## Architecture
+## Current Architecture
 
-The MarineSIR system is engineered with a modular architecture to streamline the image reconstruction workflow, from initial data ingestion to final analysis. The system is composed of three primary stages:
+1. **Data preparation**: Reads ordered image sequences from folders. `.npy` is fully supported; `.nc/.nc4` and `.tif/.tiff` are supported for basic 2D-per-file sequences. The data inspector reports file count, sliding-window count, shape, missing ratio, and value range.
+2. **FTC-LSTM reconstruction backend**: The real backend lives in `core/cloudRemoval`. It provides configurable Fourier ConvLSTM modes (`fft_add`, `fft_concat`, `none`), hybrid pixel/SSIM loss, mask-aware metrics, checkpointing, CSV metrics, TensorBoard output, and saved visual samples.
+3. **GUI workflow**: `main.py` launches a PyQt5 workbench for dataset inspection, training, metric visualization, sample visualization, parameter review, structured logs, and prediction export. Training and prediction are launched via `QProcess`, so the algorithm process is isolated from the rendering process.
+4. **Classical baselines**: `core/classical_cli.py` currently provides a lightweight DINEOF/SVD gap-filling baseline for quick comparison. DINCAE is exposed as a planned integration point but is not bundled yet.
 
-1.  **Data Preprocessing Pipeline**: This stage prepares raw satellite data for the model. It includes automated processes for handling missing values (NaNs) and applying feature engineering transformations like Log transforms, standardization, and normalization to optimize data distribution for model training.
+## Important Runtime Note
 
-2.  **Core Reconstruction Engine (FTC-LSTM)**: The heart of MarineSIR is the FTC-LSTM network, an encoder-decoder architecture proven to capture complex spatiotemporal patterns. Its key innovation is the FTC block, which uses a Fast Fourier Transform to operate in the frequency domain, giving the model a global receptive field to effectively model long-range spatial dependencies like ocean currents and gyres.
+The backend Python defaults to:
 
-3.  **Application Workflow (GUI)**: A user-friendly Graphical User Interface (GUI) allows users to apply pre-trained models for inference. This integrated design supports both research (training new models) and operational use cases (applying existing models for immediate data reconstruction).
+```text
+anaconda3\envs\torch_env\python.exe
+```
 
-## Features
+That environment has PyTorch/CUDA and the scientific backend packages, but it may not include PyQt5. You can run the GUI from any environment with PyQt5 and point the backend Python field to the Torch environment above.
 
--   **Advanced Deep Learning Model**: Utilizes an FTC-LSTM network for state-of-the-art spatiotemporal reconstruction.
--   **Interactive GUI**: An intuitive interface for running reconstruction, configuring settings, and visualizing results.
--   **Dockable Panels**: Customize your workspace with panels for controls, validation metrics, time-series plots, and logs.
--   **Data Visualization**: Includes an interactive map display for reconstructed data and linked time-series plots for specific coordinates.
--   **Model Training & Inference**: Supports both training new models from scratch (`train.py`) and applying pre-trained models via the GUI (`main.py`).
+## Install Dependencies
 
-## Installation
+GUI environment:
 
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/siyuChen540/MarineSIR.git
-    cd marinesir
-    ```
+```bash
+pip install -r requirements-gui.txt
+```
 
-2.  Create and activate a virtual environment (recommended):
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-    ```
+Backend environment:
 
-3.  Install the required dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
+```bash
+pip install -r requirements-backend.txt
+```
 
-## Usage
+For CUDA-enabled PyTorch, prefer the install command recommended by the PyTorch project for your GPU/CUDA stack instead of blindly installing the CPU wheel.
 
-### Running the GUI Application
-
-To launch the MarineSIR application for data reconstruction using a pre-trained model:
+## Run the GUI
 
 ```bash
 python main.py
 ```
 
-### Training a New Model
-To train the FTC-LSTM model on your own dataset:
-1.  Configure the training parameters in config.yml.
-2.  Run the training script:
-    ```bash
-    python train.py
-    ```
+Default GUI fields point to the included `exampleDS` folder and `core/cloudRemoval/configs/fast_debug.yaml` for a quick smoke test. Use the **Inspect Data** button first, then **Run / Train**. The Runtime section lets you choose `auto`, `cpu`, `cuda`, `cuda:0`, or `cuda:1`. During FTC-LSTM training, the Training tab plots loss, reconstruction metrics, samples/second, epoch duration, and CUDA memory when available. After training, **Export Predictions** writes NetCDF or NPZ products from the selected checkpoint.
 
-## Evaluation Metrics
-The model's performance is assessed using a comprehensive suite of four metrics:
--   **Root Mean Square Error (RMSE)**
--   **Coefficient of Determination (R²)**
--   **Peak Signal-to-Noise Ratio (PSNR)**
--   **Structural Similarity Index (SSIM)**
+The Log tab uses a structured log panel with level filtering, clear, and auto-scroll controls. The Parameters tab summarizes current runtime, data, algorithm, and training settings before each run.
+
+## Command-Line Training
+
+The root `train.py` is a compatibility wrapper around the real backend:
+
+```bash
+python train.py --config core/cloudRemoval/configs/default.yaml
+```
+
+Quick smoke test with the included sample data:
+
+```bash
+python core/cloudRemoval/tools/inspect_batch.py --config core/cloudRemoval/configs/fast_debug.yaml --set data.root_dir=exampleDS --set data.mask_dir=null
+python train.py --config core/cloudRemoval/configs/fast_debug.yaml --set data.root_dir=exampleDS --set data.mask_dir=null --set training.epochs=1
+```
+
+
+## Classical Baseline
+
+Run DINEOF directly from the command line:
+
+```bash
+python core/classical_cli.py dineof \
+  --data-root exampleDS \
+  --suffix .npy \
+  --output-dir record/dineof \
+  --rank 8 \
+  --max-iter 50 \
+  --output-format netcdf
+```
+
+The GUI can also run DINEOF by selecting `DINEOF` in the Algorithm field and pressing **Run / Train**.
+
+## Prediction Export
+
+```bash
+python core/cloudRemoval/evaluate.py \
+  --config core/cloudRemoval/configs/fast_debug.yaml \
+  --checkpoint record/<run>/checkpoints/best.pt \
+  --split all \
+  --output-format netcdf
+```
+
+NetCDF export writes variables `reconstruction`, `input`, `target`, and `observed_mask` with dimensions `time`, `y`, and `x`. For Windows paths containing non-ASCII characters, MarineSIR writes NetCDF through xarray's scipy backend for better path compatibility.
+
+## Known Limitations
+
+- NetCDF and TIFF support currently assumes one 2D image per file. Multi-time-step NetCDF files and georeferenced GeoTIFF metadata preservation should be added before public release.
+- A real pretrained FTC-LSTM checkpoint is not bundled yet. The GUI can train a checkpoint or export predictions from a user-selected checkpoint.
+- DINCAE is listed as a planned integration point, but a true DINCAE backend is not yet included.
+- The included `exampleDS` folder is a minimal NPY smoke-test dataset, not a full benchmark dataset.
